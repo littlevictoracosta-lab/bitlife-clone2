@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitLife: Prison & Powers</title>
+    <style>
+        :root { --bitlife-green: #2ecc71; --hero-blue: #3498db; --villain-red: #e74c3c; --admin-purple: #9b59b6; --prison-orange: #e67e22; }
+        body { font-family: 'Segoe UI', sans-serif; background-color: #2c3e50; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        
+        #game-container { background: white; width: 400px; height: 750px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        
+        /* Modals */
+        .modal { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 50; display: flex; flex-direction: column; padding: 20px; box-sizing: border-box; overflow-y: auto; }
+        .hidden { display: none !important; }
+
+        /* Prison Overlay */
+        #prison-cell { background: #34495e; color: white; text-align: center; justify-content: center; z-index: 60; }
+        .bars { font-size: 50px; letter-spacing: 10px; color: #95a5a6; margin-bottom: 20px; }
+
+        /* UI Styling */
+        #header { padding: 15px; background: #34495e; color: white; text-align: center; }
+        #stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; background: #ecf0f1; border-bottom: 2px solid #bdc3c7; font-size: 0.85rem; }
+        #log { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column-reverse; background: #fff; }
+        .log-entry { margin-bottom: 8px; padding: 10px; border-radius: 8px; background: #f8f9fa; border-left: 5px solid var(--bitlife-green); font-size: 0.9rem; }
+        .prison-log { border-left-color: var(--prison-orange); background: #fef5e7; color: #d35400; }
+        
+        #controls { padding: 15px; background: white; border-top: 1px solid #eee; display: flex; flex-direction: column; gap: 8px; }
+        button { background-color: var(--bitlife-green); color: white; border: none; padding: 12px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        .admin-btn { background: #333; color: #0f0; border: 1px solid #0f0; padding: 10px; margin: 5px 0; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="start-menu" class="modal">
+        <h2>Life Setup</h2>
+        <input type="text" id="name-input" style="padding:10px; margin-bottom:10px;" placeholder="Character Name">
+        <select id="power-choice" style="padding:10px; margin-bottom:10px;">
+            <option value="none">Normal Human</option>
+            <option value="Super Strength">Super Strength</option>
+            <option value="Telepathy">Telepathy</option>
+        </select>
+        <button onclick="startGame()">START LIFE</button>
+    </div>
+
+    <div id="prison-cell" class="modal hidden">
+        <div class="bars">||||||||||||</div>
+        <h1>IN PRISON</h1>
+        <p>Sentence Remaining: <span id="sentence-ui">0</span> years</p>
+        <p style="font-size: 0.8rem; opacity: 0.7;">Click "Age Up" to serve your time.</p>
+        <button onclick="ageUp()" style="background: var(--prison-orange)">SERVE YEAR</button>
+    </div>
+
+    <div id="owner-panel" class="modal hidden" style="background:#1a1a1a; color:#0f0;">
+        <h2>OWNER PANEL</h2>
+        <button class="admin-btn" onclick="addMoney(100000)">+ $100k</button>
+        <button class="admin-btn" onclick="sentence = 0; checkPrison();">Instant Parole</button>
+        <button class="admin-btn" onclick="globalEvent('The President has pardoned all criminals!')">🌐 GLOBAL PARDON</button>
+        <button onclick="toggleOwner()" style="background:#e74c3c; margin-top: 10px;">Close</button>
+    </div>
+
+    <div id="header">
+        <h2 id="char-name">---</h2>
+        <div id="power-display" style="color: #9b59b6; font-weight: bold; font-size: 0.8rem;"></div>
+    </div>
+    <div id="stats">
+        <div>Age: <span id="age">0</span></div>
+        <div>Bank: <span id="bank">$0</span></div>
+        <div>Job: <span id="job-display">None</span></div>
+        <div>Wanted Level: <span id="wanted-ui">0</span></div>
+    </div>
+    <div id="log"></div>
+    <div id="controls">
+        <button onclick="ageUp()" id="main-age-btn">AGE UP</button>
+        <div id="power-actions" style="display:none; gap:5px; grid-template-columns: 1fr 1fr;">
+            <button onclick="usePower('hero')" style="background:var(--hero-blue)">Hero Act</button>
+            <button onclick="usePower('villain')" style="background:var(--villain-red)">Villain Act</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let player = { name: "", age: 0, bank: 0, power: null, job: null, wanted: 0 };
+    let sentence = 0;
+
+    window.addEventListener('keydown', (e) => { if(e.key.toLowerCase() === 'o') toggleOwner(); });
+
+    function startGame() {
+        player.name = document.getElementById('name-input').value || "Citizen";
+        player.power = document.getElementById('power-choice').value;
+        if(player.power !== "none") {
+            document.getElementById('power-display').innerText = "POWER: " + player.power;
+            document.getElementById('power-actions').style.display = "grid";
+        }
+        document.getElementById('start-menu').classList.add('hidden');
+        addLog("You were born.");
+    }
+
+    function ageUp() {
+        if (sentence > 0) {
+            sentence--;
+            player.age++;
+            addLog(`Age ${player.age}: You served another year in prison.`, "prison-log");
+            checkPrison();
+            updateUI();
+            return;
+        }
+
+        player.age++;
+        if(player.job) player.bank += 2000;
+        
+        // Random police sweep
+        if(player.wanted > Math.random() * 100) {
+            arrest();
+        }
+
+        addLog(`Age ${player.age}: Life goes on.`);
+        updateUI();
+    }
+
+    function usePower(type) {
+        if(type === 'hero') {
+            player.wanted = Math.max(0, player.wanted - 10);
+            addLog("🦸 You saved the day! Police lowered your wanted level.");
+        } else {
+            player.wanted += 25;
+            player.bank += 10000;
+            addLog("🦹 You committed a heist! Your wanted level rose.");
+            if(player.wanted >= 75) arrest();
+        }
+        updateUI();
+    }
+
+    function arrest() {
+        sentence = Math.floor(Math.random() * 5) + 2;
+        player.job = null;
+        player.wanted = 0;
+        addLog(`🚨 BUSTED! You were sentenced to ${sentence} years in prison!`, "prison-log");
+        checkPrison();
+    }
+
+    function checkPrison() {
+        const modal = document.getElementById('prison-cell');
+        if(sentence > 0) {
+            modal.classList.remove('hidden');
+            document.getElementById('sentence-ui').innerText = sentence;
+        } else {
+            modal.classList.add('hidden');
+        }
+    }
+
+    function toggleOwner() { document.getElementById('owner-panel').classList.toggle('hidden'); }
+    function addMoney(amt) { player.bank += amt; updateUI(); }
+    
+    function globalEvent(msg) {
+        addLog(`[GLOBAL] ${msg}`, "prison-log");
+        if(msg.includes("pardon")) { sentence = 0; checkPrison(); }
+    }
+
+    function addLog(text, className = "") {
+        const log = document.getElementById('log');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${className}`;
+        entry.innerText = text;
+        log.appendChild(entry);
+    }
+
+    function updateUI() {
+        document.getElementById('age').innerText = player.age;
+        document.getElementById('bank').innerText = "$" + player.bank;
+        document.getElementById('job-display').innerText = player.job || "None";
+        document.getElementById('wanted-ui').innerText = player.wanted;
+    }
+</script>
+</body>
+</html>
